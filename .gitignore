@@ -1,0 +1,20 @@
+# Build outputs
+*.xpi
+*.zip
+*.crx
+
+# Local dev directories — not for version control
+tmp/
+xpi/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

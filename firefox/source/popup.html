@@ -1,0 +1,673 @@
+<!--
+  retire.js pro — Popup Interface
+  Detects vulnerable JavaScript libraries via the RetireJS vulnerability database.
+  Project : https://github.com/silico-industries/retire.js-pro
+  Author  : silico (silico industries)
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>retire.js pro</title>
+    <script src="js/popup.js"></script>
+    <style>
+        /* ===== CSS Variables / Design Tokens ===== */
+        :root {
+            --color-bg: #ffffff;
+            --color-surface: #f8f9fa;
+            --color-border: #e2e8f0;
+            --color-text: #1a202c;
+            --color-text-muted: #718096;
+            --color-primary: #6366f1;
+            --color-primary-dark: #4f46e5;
+            --color-danger: #e53e3e;
+            --color-danger-light: #fff5f5;
+            --color-danger-text: #c53030;
+            --color-unknown-light: #f7fafc;
+            --radius: 8px;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+
+            /* Toggle colors for light mode */
+            --toggle-off-bg: #cbd5e0;
+            --toggle-on-bg: #48bb78;
+            --toggle-handle: #ffffff;
+
+            /* Checkbox accent color */
+            --checkbox-accent: #6366f1;
+
+            /* ===== Header gradient — single source of truth for popup + report ===== */
+            --header-bg: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
+
+            /* ===== Report-specific tokens (not used by popup UI, only by generateReport) ===== */
+            --report-page-bg: #f1f5f9;
+            --report-wrapper-bg: #ffffff;
+            --report-th-bg: #f8f9fa;
+            --report-link-color: #4338ca;
+            --report-status-vuln-bg: #fed7d7;
+            --report-status-vuln-text: #9b2c2c;
+            --report-status-unkn-bg: #e2e8f0;
+            --report-status-unkn-text: #4a5568;
+            --report-status-safe-bg: #c6f6d5;
+            --report-status-safe-text: #22543d;
+
+            /* ===== Severity badge tokens — mirrors .badge-* classes ===== */
+            --sev-critical-bg: #feb2b2;
+            --sev-critical-text: #742a2a;
+            --sev-high-bg: #fbd38d;
+            --sev-high-text: #744210;
+            --sev-medium-bg: #fef3c7;
+            --sev-medium-text: #78350f;
+            --sev-low-bg: #c6f6d5;
+            --sev-low-text: #22543d;
+            --sev-unknown-bg: #e2e8f0;
+            --sev-unknown-text: #4a5568;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            width: 520px;
+            min-height: 400px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-size: 13px;
+            color: var(--color-text);
+            background: var(--color-bg);
+            line-height: 1.5;
+        }
+
+        /* ===== Header ===== */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            background: var(--header-bg);
+            /* uses --header-bg → same gradient used in exported report */
+            color: white;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-logo {
+            width: 28px;
+            height: 28px;
+        }
+
+        .header-title {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        /* ===== PRO Badge - Glass Effect ===== */
+        .pro-badge {
+            background: linear-gradient(135deg,
+                    rgba(255, 255, 255, 0.3) 0%,
+                    rgba(255, 255, 255, 0.15) 100%);
+            color: white;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            padding: 2px 7px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15),
+                inset 0 1px 1px rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        /* ===== Toggle Switch ===== */
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-track {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--toggle-off-bg);
+            border-radius: 22px;
+            transition: background 0.3s ease;
+            cursor: pointer;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle-track::before {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 3px;
+            bottom: 3px;
+            background: var(--toggle-handle);
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle input:checked+.toggle-track {
+            background: var(--toggle-on-bg);
+        }
+
+        .toggle input:checked+.toggle-track::before {
+            transform: translateX(18px);
+        }
+
+        /* ===== Stats Bar ===== */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .stat-box {
+            padding: 10px 16px;
+            text-align: center;
+            border-right: 1px solid var(--color-border);
+        }
+
+        .stat-box:last-child {
+            border-right: none;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--color-text-muted);
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.2;
+            margin-top: 2px;
+        }
+
+        .stat-value.danger {
+            color: var(--color-danger);
+        }
+
+        .stat-value.primary {
+            color: var(--color-primary);
+        }
+
+        /* ===== Toolbar ===== */
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: var(--color-surface);
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--color-text);
+            user-select: none;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--checkbox-accent);
+            cursor: pointer;
+        }
+
+        /* ===== Export Button ===== */
+        .btn-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            background: linear-gradient(135deg, var(--color-border) 0%, var(--color-surface) 100%);
+            color: var(--color-text-muted);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn-export:hover {
+            background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-border) 100%);
+            border-color: var(--color-text-muted);
+            color: var(--color-text);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-export svg {
+            flex-shrink: 0;
+        }
+
+        /* ===== Scanned Page Info ===== */
+        .page-info {
+            padding: 6px 16px 4px;
+            background: var(--color-surface);
+            border-bottom: 1px solid var(--color-border);
+            font-size: 11px;
+            color: var(--color-text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .page-info strong {
+            font-weight: 600;
+            color: var(--color-text-muted);
+        }
+
+        /* ===== Results Area ===== */
+        #results-container {
+            max-height: 380px;
+            overflow-y: auto;
+        }
+
+        #no-results-msg {
+            padding: 40px 16px;
+            text-align: center;
+            color: var(--color-text-muted);
+            font-size: 13px;
+        }
+
+        #no-results-msg .icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        /* ===== Results Table ===== */
+        table#results {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table#results thead th {
+            padding: 7px 10px;
+            background: var(--color-surface);
+            border-bottom: 2px solid var(--color-border);
+            text-align: left;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--color-text-muted);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        table#results tbody tr.vulnerable {
+            background: var(--color-danger-light);
+        }
+
+        table#results tbody tr.unknown {
+            background: var(--color-unknown-light);
+        }
+
+        table#results tbody tr:not(.unknown):not(.vulnerable) {
+            background: white;
+        }
+
+        .hideunknown .unknown {
+            display: none;
+        }
+
+        table#results td {
+            padding: 7px 10px;
+            vertical-align: top;
+            font-size: 12px;
+        }
+
+        .cell-lib {
+            font-weight: 600;
+            color: var(--color-text);
+            min-width: 100px;
+        }
+
+        .cell-version {
+            font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+            font-size: 11px;
+            color: var(--color-text-muted);
+            min-width: 70px;
+        }
+
+        .cell-info {
+            color: var(--color-text-muted);
+            font-size: 11px;
+            line-height: 1.6;
+        }
+
+        /* ===== URL chip ===== */
+        .url-chip {
+            display: inline-block;
+            background: #eef2ff;
+            color: #4338ca;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 10px;
+            font-family: 'SFMono-Regular', monospace;
+            word-break: break-all;
+            max-width: 280px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+
+        /* ===== Severity badges ===== */
+        .badge {
+            display: inline-block;
+            padding: 1px 7px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-right: 4px;
+        }
+
+        .badge-critical {
+            background: var(--sev-critical-bg);
+            color: var(--sev-critical-text);
+        }
+
+        .badge-high {
+            background: var(--sev-high-bg);
+            color: var(--sev-high-text);
+        }
+
+        .badge-medium {
+            background: var(--sev-medium-bg);
+            color: var(--sev-medium-text);
+        }
+
+        .badge-low {
+            background: var(--sev-low-bg);
+            color: var(--sev-low-text);
+        }
+
+        .badge-unknown {
+            background: var(--sev-unknown-bg);
+            color: var(--sev-unknown-text);
+        }
+
+        /* ===== Vuln info links ===== */
+        .vuln-row {
+            margin-top: 4px;
+            padding-top: 4px;
+            border-top: 1px dashed var(--color-border);
+        }
+
+        .vuln-identifiers {
+            color: var(--color-text);
+            font-weight: 600;
+            font-size: 10px;
+            margin-bottom: 2px;
+        }
+
+        .vuln-links a {
+            display: inline-block;
+            color: var(--color-primary);
+            text-decoration: none;
+            font-size: 10px;
+            margin-right: 5px;
+        }
+
+        .vuln-links a:hover {
+            text-decoration: underline;
+        }
+
+        /* ===== Footer ===== */
+        .footer {
+            padding: 7px 16px;
+            background: var(--color-surface);
+            border-top: 1px solid var(--color-border);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .version-badge {
+            font-size: 10px;
+            color: var(--color-text-muted);
+            background: var(--color-border);
+            padding: 2px 7px;
+            border-radius: 10px;
+        }
+
+        /* ===== Scrollbar ===== */
+        #results-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #results-container::-webkit-scrollbar-thumb {
+            background: var(--color-border);
+            border-radius: 3px;
+        }
+
+        /* ===== Dark Mode Overrides ===== */
+        body.dark {
+            --color-bg: #0f1117;
+            --color-surface: #1a1d27;
+            --color-border: #2d3148;
+            --color-text: #e2e8f0;
+            --color-text-muted: #8892b0;
+            --color-primary: #39ff14;
+            --color-primary-dark: #4f46e5;
+            --color-danger-light: #3b1a1a;
+            --color-unknown-light: #212533;
+
+            /* Toggle colors for dark mode */
+            --toggle-off-bg: #374151;
+            --toggle-on-bg: #10b981;
+            --toggle-handle: #f3f4f6;
+
+            /* Checkbox accent color - green in dark mode */
+            --checkbox-accent: #10b981;
+
+            /* ===== Header gradient — dark mode (synced with report) ===== */
+            --header-bg: linear-gradient(135deg, #15161d 15%, #20242e 85%);
+
+            /* ===== Report tokens — dark mode ===== */
+            --report-page-bg: #0f1117;
+            --report-wrapper-bg: #1a1d27;
+            --report-th-bg: #1f2233;
+            --report-link-color: #818cf8;
+            --report-status-vuln-bg: #742a2a;
+            --report-status-vuln-text: #feb2b2;
+            --report-status-unkn-bg: #2d3748;
+            --report-status-unkn-text: #e2e8f0;
+            --report-status-safe-bg: #1c4532;
+            --report-status-safe-text: #c6f6d5;
+
+            /* ===== Severity badge tokens — dark mode ===== */
+            --sev-critical-bg: #742a2a;
+            --sev-critical-text: #feb2b2;
+            --sev-high-bg: #744210;
+            --sev-high-text: #fbd38d;
+            --sev-medium-bg: #78350f;
+            --sev-medium-text: #fef3c7;
+            --sev-low-bg: #1c4532;
+            --sev-low-text: #c6f6d5;
+            --sev-unknown-bg: #2d3748;
+            --sev-unknown-text: #e2e8f0;
+        }
+
+        /* body.dark .header is no longer needed — --header-bg handles it */
+
+        body.dark table#results tbody tr:not(.unknown):not(.vulnerable) {
+            background: var(--color-bg);
+        }
+
+        body.dark .url-chip {
+            background: #1e293b;
+            color: #818cf8;
+        }
+
+        /* ===== Theme Toggle ===== */
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .theme-toggle {
+            background: transparent;
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .theme-toggle:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <img class="header-logo" src="icons/icon48.png" alt="retire.js pro">
+            <span class="header-title">Retire.JS</span>
+            <span class="pro-badge">PRO</span>
+        </div>
+        <div class="header-right">
+            <label class="toggle-label">
+                <span>Enabled</span>
+                <span class="toggle">
+                    <input type="checkbox" id="enabled">
+                    <span class="toggle-track"></span>
+                </span>
+            </label>
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
+                <svg id="theme-icon-moon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" style="display: none;">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+                <svg id="theme-icon-sun" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" style="display: none;">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+        <div class="stat-box">
+            <div class="stat-label">Vulnerabilities</div>
+            <div class="stat-value danger" id="vulnerabilities-count">0</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Libraries Found</div>
+            <div class="stat-value primary" id="libraries-count">0</div>
+        </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <label class="checkbox-label">
+                <input type="checkbox" id="unknown">
+                Show unknown libraries
+            </label>
+        </div>
+        <button class="btn-export" id="export-report">
+            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Export HTML
+        </button>
+    </div>
+
+    <!-- Results -->
+    <div id="page-info" class="page-info" style="display:none;"></div>
+    <div id="results-container">
+        <div id="no-results-msg">
+            <div class="icon">🔍</div>
+            <div>No libraries detected on this page yet.</div>
+        </div>
+        <table id="results" class="hideunknown" style="display:none;">
+            <thead>
+                <tr>
+                    <th>Library</th>
+                    <th>Version</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- Footer — version is set dynamically from manifest by popup.js -->
+    <div class="footer">
+        <span class="version-badge" id="version-badge">v…</span>
+    </div>
+
+</body>
+
+</html>
