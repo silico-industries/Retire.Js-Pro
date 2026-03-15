@@ -60,7 +60,7 @@ More screenshots (including report export) are in [docs/SCREENSHOTS.md](docs/SCR
 
 | Platform | Status | Links |
 | :--- | :--- | :--- |
-| **Firefox** | ![Active](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square) | <a href="https://addons.mozilla.org/en-US/firefox/addon/retire-js-pro/" target="_blank" rel="noopener"><img src="https://upload.wikimedia.org/wikipedia/commons/a/a0/Firefox_logo%2C_2019.svg" alt="Firefox" width="20" style="vertical-align:middle;margin-right:6px;">  Firefox</a> |
+| **Firefox** | ![Active](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square) | <a href="https://addons.mozilla.org/en-US/firefox/addon/retire-js-pro/" target="_blank" rel="noopener"><img src="https://upload.wikimedia.org/wikipedia/commons/a/a0/Firefox_logo%2C_2019.svg" alt="Firefox" width="20">&nbsp;&nbsp;Firefox</a> |
 | **Chromium** | ![Pending](https://img.shields.io/badge/Status-In%20Progress-yellow?style=flat-square) | *Coming soon to Chrome Web Store* |
 
 ### Manual Installation (Testing Only)
