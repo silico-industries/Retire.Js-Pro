@@ -61,10 +61,34 @@ More screenshots (including report export) are in [docs/SCREENSHOTS.md](docs/SCR
 
 ## Installation
 
-| Platform | Status | Links |
-| :--- | :--- | :--- |
-| **Firefox** | ![Active](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square) | <a href="https://addons.mozilla.org/en-US/firefox/addon/retire-js-pro/" target="_blank" rel="noopener"><img src="https://upload.wikimedia.org/wikipedia/commons/a/a0/Firefox_logo%2C_2019.svg" alt="Firefox" width="20">&nbsp;&nbsp;Firefox</a> |
-| **Chromium** | ![Pending](https://img.shields.io/badge/Status-In%20Progress-yellow?style=flat-square) | *Coming soon to Chrome Web Store* |
+<div align="center">
+<table>
+  <thead>
+    <tr>
+      <th>Platform</th>
+      <th>Status</th>
+      <th>Links</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Firefox</strong></td>
+      <td><img src="https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square" alt="Active"></td>
+      <td>
+        <a href="https://addons.mozilla.org/en-US/firefox/addon/retire-js-pro/" target="_blank" rel="noopener">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/a/a0/Firefox_logo%2C_2019.svg" alt="Firefox" width="20" style="vertical-align:middle;">&nbsp;&nbsp;Firefox
+        </a>
+      </td>
+    </tr>
+    <tr>
+      <td><strong>Chromium</strong></td>
+      <td><img src="https://img.shields.io/badge/Status-In%20Progress-yellow?style=flat-square" alt="Pending"></td>
+      <td><em>Coming soon to Chrome Web Store</em></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
 
 ### Manual Installation (Testing Only)
 
