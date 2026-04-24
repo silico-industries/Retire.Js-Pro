@@ -12,7 +12,6 @@ Contributions are welcome. See [CONTRIBUTING.md](../CONTRIBUTING.md) before star
 - [ ] **Runtime database updates** — auto-fetch latest `jsrepository.json` from upstream at runtime, cache via `browser.storage.local`, fall back to bundled on failure. Full design is already written internally — implementation target is `js/background.js` → `downloadRepo()` (fetch from github root repo at `main/db/jsrepository.json`)
 - [ ] **Popup Markdown rendering** — render vulnerability/advisory descriptions as Markdown (inline code/backticks + code blocks) instead of showing literal `` `...` `` characters.
 - [ ] **Chromium ** — adapt manifest for Chrome/Edge MV3: replace `browser.*` namespace with `chrome.*` or use a compatibility shim, migrate background page to service worker.
-- [ ] **GitHub Actions CI** — automated & manual cron jobs for creating xpi file and uploading to GitHub releases.
 - [ ] **GitHub Actions CI** — automated & manual cron jobs for updating jsrepository.json from upstream.
 
 
@@ -54,3 +53,4 @@ Contributions are welcome. See [CONTRIBUTING.md](../CONTRIBUTING.md) before star
 - [x] `postMessage` origin validation added to background, sandbox, and innersandbox
 - [x] Badge reset on page navigation — `webNavigation.onCommitted` listener added
 - [x] Vulnerability database updated — 65 libraries, 488 records, 346 CVEs
+- [x] **GitHub Actions CI** — automated & manual cron jobs for creating xpi file and uploading to GitHub releases.
