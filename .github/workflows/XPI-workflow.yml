@@ -1,0 +1,526 @@
+# ============================================================
+# Retire.JS Pro — Manual XPI Build, GitHub Release & AMO Publish
+# ============================================================
+# Trigger: manual only (workflow_dispatch)
+# Permissions required: repository owner or collaborator
+#
+# USAGE MODES:
+#
+# 1. BUILD-ONLY (no release, no AMO):
+#    - Leave all fields at defaults
+#    - Uncheck create_release_without_gist
+#    - Uncheck publish_to_amo
+#    → Creates Git tag + artifacts only
+#
+# 2. GITHUB RELEASE with Gist notes:
+#    - Paste raw Gist URL in gist_url
+#    → Creates GitHub release with Gist content
+#
+# 3. GITHUB RELEASE with auto notes:
+#    - Leave gist_url empty
+#    - Check create_release_without_gist
+#    → Creates GitHub release with auto-generated notes
+#
+# 4. AMO PUBLISH:
+#    - Check publish_to_amo
+#    - Optionally fill amo_channel (listed/unlisted)
+#    - Optionally fill amo_release_note_gist_url for a custom release note
+#    → Uploads XPI to addons.mozilla.org
+#    → All metadata (addon-id, version, min firefox) read from manifest.json
+#
+# Modes can be combined freely (e.g. GitHub release + AMO publish in one run).
+#
+# Required GitHub Secrets for AMO:
+#   AMO_JWT_ISSUER — AMO JWT API key (from addons.mozilla.org/en-US/developers/addon/api/key/)
+#   AMO_JWT_SECRET — AMO JWT API secret
+#   (from https://addons.mozilla.org/en-US/developers/addon/api/key/)
+#
+# ============================================================
+
+name: Build and Release XPI
+
+on:
+  workflow_dispatch:
+    inputs:
+
+      # ── Build parameters ────────────────────────────────────
+      xpi_name:
+        description: "Output filename (without .xpi) — leave empty for auto-detect from manifest"
+        required: false
+        default: ""
+
+      source_path:
+        description: "Source directory to package (relative to repo root)"
+        required: false
+        default: "firefox/source"
+
+      # ── Git / GitHub Release ────────────────────────────────
+      tag_name:
+        description: "Git tag for this release — leave empty to read from manifest.json"
+        required: false
+        default: ""
+
+      release_title:
+        description: "Release display title — leave empty for auto-generation"
+        required: false
+        default: ""
+
+      prerelease:
+        description: "Mark as pre-release on GitHub"
+        type: boolean
+        default: false
+
+      gist_url:
+        description: "Raw Gist URL for GitHub Release notes (optional)"
+        required: false
+        default: ""
+
+      create_release_without_gist:
+        description: "Create GitHub Release even without Gist (uses auto-generated notes)"
+        type: boolean
+        default: false
+
+      # ── AMO Publish ─────────────────────────────────────────
+      publish_to_amo:
+        description: "Publish this build to addons.mozilla.org"
+        type: boolean
+        default: false
+
+      amo_channel:
+        description: "AMO channel: 'listed' (public) or 'unlisted' (self-distributed)"
+        required: false
+        default: "listed"
+
+      amo_release_note_gist_url:
+        description: "Raw Gist URL for AMO release note (optional — separate from GitHub release notes)"
+        required: false
+        default: ""
+
+# ============================================================
+
+jobs:
+  build-and-release:
+    name: Build XPI and publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # Required for creating releases and tags
+
+    steps:
+
+      # ----------------------------------------------------------
+      # 1. Checkout
+      # ----------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # 2. Validate source path
+      # ----------------------------------------------------------
+      - name: Validate source path
+        run: |
+          SOURCE="${{ inputs.source_path }}"
+          if [ ! -d "$GITHUB_WORKSPACE/$SOURCE" ]; then
+            echo "::error::Source path '$SOURCE' does not exist in this repository."
+            exit 1
+          fi
+          echo "Source path validated: $SOURCE"
+          echo "Files inside source:"
+          ls -la "$GITHUB_WORKSPACE/$SOURCE"
+
+      # ----------------------------------------------------------
+      # 3. Extract metadata from manifest.json
+      #    Reads: version, name, addon-id, firefox min version
+      #    All AMO metadata comes from here — no manual input needed
+      # ----------------------------------------------------------
+      - name: Extract metadata from manifest.json
+        id: manifest
+        run: |
+          MANIFEST_PATH="${{ inputs.source_path }}/manifest.json"
+
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "::error::manifest.json not found at $MANIFEST_PATH"
+            exit 1
+          fi
+
+          VERSION=$(jq -r '.version' "$MANIFEST_PATH")
+          NAME=$(jq -r '.name' "$MANIFEST_PATH" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+          ADDON_ID=$(jq -r '.browser_specific_settings.gecko.id // empty' "$MANIFEST_PATH")
+          FIREFOX_MIN=$(jq -r '.browser_specific_settings.gecko.strict_min_version // empty' "$MANIFEST_PATH")
+
+          echo "Extracted from manifest.json:"
+          echo "  Name:        $NAME"
+          echo "  Version:     $VERSION"
+          echo "  Addon ID:    $ADDON_ID"
+          echo "  Firefox min: $FIREFOX_MIN"
+
+          if [ -z "$ADDON_ID" ] && [ "${{ inputs.publish_to_amo }}" == "true" ]; then
+            echo "::error::publish_to_amo is enabled but browser_specific_settings.gecko.id is not set in manifest.json"
+            exit 1
+          fi
+
+          echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
+          echo "name=$NAME"             >> "$GITHUB_OUTPUT"
+          echo "addon_id=$ADDON_ID"     >> "$GITHUB_OUTPUT"
+          echo "firefox_min=$FIREFOX_MIN" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 4. Determine final build parameters
+      # ----------------------------------------------------------
+      - name: Determine final build parameters
+        id: params
+        run: |
+          if [ -n "${{ inputs.xpi_name }}" ]; then
+            XPI_NAME="${{ inputs.xpi_name }}"
+          else
+            XPI_NAME="${{ steps.manifest.outputs.name }}-v${{ steps.manifest.outputs.version }}"
+          fi
+
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            TAG_NAME="${{ inputs.tag_name }}"
+          else
+            TAG_NAME="v${{ steps.manifest.outputs.version }}"
+          fi
+
+          if [ -n "${{ inputs.release_title }}" ]; then
+            RELEASE_TITLE="${{ inputs.release_title }}"
+          else
+            RELEASE_TITLE="${{ steps.manifest.outputs.name }} v${{ steps.manifest.outputs.version }}"
+          fi
+
+          echo "Final parameters:"
+          echo "  XPI name:      $XPI_NAME"
+          echo "  Git tag:       $TAG_NAME"
+          echo "  Release title: $RELEASE_TITLE"
+
+          echo "xpi_name=$XPI_NAME"         >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME"         >> "$GITHUB_OUTPUT"
+          echo "release_title=$RELEASE_TITLE" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 5. Build XPI archive
+      # ----------------------------------------------------------
+      - name: Build XPI archive
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd "$GITHUB_WORKSPACE/${{ inputs.source_path }}"
+
+          zip -r "$GITHUB_WORKSPACE/dist/${{ steps.params.outputs.xpi_name }}.xpi" . \
+            --exclude "*.git*"       \
+            --exclude "__MACOSX*"    \
+            --exclude "*/.DS_Store"  \
+            --exclude "*/Thumbs.db"  \
+            --exclude "*/.vscode/*"
+
+          echo "✓ XPI created:"
+          ls -lh "$GITHUB_WORKSPACE/dist/${{ steps.params.outputs.xpi_name }}.xpi"
+
+      # ----------------------------------------------------------
+      # 6. Generate SHA-256 checksum
+      # ----------------------------------------------------------
+      - name: Generate SHA-256 checksum
+        id: checksum
+        run: |
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum "${{ steps.params.outputs.xpi_name }}.xpi" \
+            > "${{ steps.params.outputs.xpi_name }}.xpi.sha256"
+          CHECKSUM=$(cut -d ' ' -f 1 "${{ steps.params.outputs.xpi_name }}.xpi.sha256")
+          echo "✓ Checksum: $CHECKSUM"
+          echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 7. Upload build artifacts
+      # ----------------------------------------------------------
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.params.outputs.xpi_name }}
+          path: |
+            dist/${{ steps.params.outputs.xpi_name }}.xpi
+            dist/${{ steps.params.outputs.xpi_name }}.xpi.sha256
+          retention-days: 90
+
+      # ----------------------------------------------------------
+      # 8. Extract Donate section from README
+      # ----------------------------------------------------------
+      - name: Extract Donate section from README
+        id: donations
+        continue-on-error: true
+        run: |
+          README_PATH="$GITHUB_WORKSPACE/README.md"
+
+          if [ ! -f "$README_PATH" ]; then
+            echo "⚠️ README.md not found"
+            echo "donate_section=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract the "## Donate" section (up to the next "## " header or EOF),
+          # then trim leading/trailing whitespace using perl for robustness.
+          DONATE_SECTION=$(perl -0777 -ne '
+            if (/^##\s+Donate\s*(.*?)^(?=##\s+|\z)/ms) {
+              $s = $1;
+              $s =~ s/^\s+|\s+$//g;
+              print $s;
+            }
+          ' "$README_PATH")
+
+          if [ -z "$DONATE_SECTION" ]; then
+            echo "ℹ️ Donate section not found in README.md"
+            echo "donate_section=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "✓ Donate section extracted (${#DONATE_SECTION} chars)"
+
+          {
+            echo "donate_section<<DONATE_EOF"
+            echo "$DONATE_SECTION"
+            echo "DONATE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 9. Fetch GitHub Release notes from Gist (optional)
+      # ----------------------------------------------------------
+      - name: Fetch GitHub Release notes from Gist
+        id: gist
+        if: ${{ inputs.gist_url != '' }}
+        env:
+          DONATE_CONTENT: ${{ steps.donations.outputs.donate_section }}
+        run: |
+          echo "Fetching Gist: ${{ inputs.gist_url }}"
+
+          HTTP_CODE=$(curl -s -L -o /tmp/gist_raw.md -w "%{http_code}" "${{ inputs.gist_url }}")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to fetch Gist (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          echo "✓ Gist fetched ($(wc -c < /tmp/gist_raw.md) bytes)"
+
+          cp /tmp/gist_raw.md /tmp/gist_processed.md
+
+          sed -i "s|{{VERSION}}|${{ steps.manifest.outputs.version }}|g"         /tmp/gist_processed.md
+          sed -i "s|{{PROJECT_NAME}}|Retire.JS Pro|g"                             /tmp/gist_processed.md
+          sed -i "s|{{TAG_NAME}}|${{ steps.params.outputs.tag_name }}|g"          /tmp/gist_processed.md
+          sed -i "s|{{XPI_FILENAME}}|${{ steps.params.outputs.xpi_name }}.xpi|g" /tmp/gist_processed.md
+          sed -i "s|{{CHECKSUM}}|${{ steps.checksum.outputs.checksum }}|g"        /tmp/gist_processed.md
+          sed -i "s|{{RELEASE_DATE}}|$(date -u '+%B %d, %Y')|g"                  /tmp/gist_processed.md
+          sed -i "s|{{CURRENT_YEAR}}|$(date -u '+%Y')|g"                          /tmp/gist_processed.md
+          sed -i "s|{{REPO_URL}}|https://github.com/${{ github.repository }}|g"   /tmp/gist_processed.md
+
+          DESCRIPTION=$(jq -r '.description // "A Firefox extension for security scanning"' "${{ inputs.source_path }}/manifest.json")
+          DESCRIPTION_ESCAPED=$(echo "$DESCRIPTION" | sed 's/[&/\]/\\&/g')
+          sed -i "s|{{PROJECT_DESCRIPTION}}|$DESCRIPTION_ESCAPED|g" /tmp/gist_processed.md
+
+          # Donate section — use env var (safe against injection via special chars)
+          if [ -n "$DONATE_CONTENT" ]; then
+            printf '%s\n' "$DONATE_CONTENT" > /tmp/donate_content.txt
+            perl -i -0pe 's/\{\{DONATION_SECTION\}\}/`cat \/tmp\/donate_content.txt`/ge' /tmp/gist_processed.md
+            echo "✓ Donate section inserted"
+          else
+            sed -i '/{{DONATION_SECTION}}/d' /tmp/gist_processed.md
+          fi
+
+          echo "✓ Template variables processed"
+
+          {
+            echo "body<<GIST_EOF"
+            cat /tmp/gist_processed.md
+            echo ""
+            echo "GIST_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 10. Fetch AMO release note from Gist (optional)
+      #     Separate Gist URL specifically for the AMO version note.
+      #     Supports the same {{VARIABLE}} template system.
+      #     AMO release-note field is plain text / simple markdown,
+      #     locale en-US only (AMO API limitation).
+      # ----------------------------------------------------------
+      - name: Fetch AMO release note from Gist
+        id: amo_note
+        if: ${{ inputs.publish_to_amo && inputs.amo_release_note_gist_url != '' }}
+        run: |
+          echo "Fetching AMO release note Gist: ${{ inputs.amo_release_note_gist_url }}"
+
+          HTTP_CODE=$(curl -s -L -o /tmp/amo_note_raw.md -w "%{http_code}" "${{ inputs.amo_release_note_gist_url }}")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to fetch AMO note Gist (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          echo "✓ AMO note Gist fetched ($(wc -c < /tmp/amo_note_raw.md) bytes)"
+
+          cp /tmp/amo_note_raw.md /tmp/amo_note_processed.md
+
+          sed -i "s|{{VERSION}}|${{ steps.manifest.outputs.version }}|g"         /tmp/amo_note_processed.md
+          sed -i "s|{{PROJECT_NAME}}|Retire.JS Pro|g"                             /tmp/amo_note_processed.md
+          sed -i "s|{{TAG_NAME}}|${{ steps.params.outputs.tag_name }}|g"          /tmp/amo_note_processed.md
+          sed -i "s|{{XPI_FILENAME}}|${{ steps.params.outputs.xpi_name }}.xpi|g" /tmp/amo_note_processed.md
+          sed -i "s|{{CHECKSUM}}|${{ steps.checksum.outputs.checksum }}|g"        /tmp/amo_note_processed.md
+          sed -i "s|{{RELEASE_DATE}}|$(date -u '+%B %d, %Y')|g"                  /tmp/amo_note_processed.md
+          sed -i "s|{{REPO_URL}}|https://github.com/${{ github.repository }}|g"   /tmp/amo_note_processed.md
+          sed -i "s|{{CURRENT_YEAR}}|$(date -u '+%Y')|g"                          /tmp/amo_note_processed.md
+
+          DESCRIPTION=$(jq -r '.description // "A Firefox extension for security scanning"' "${{ inputs.source_path }}/manifest.json")
+          DESCRIPTION_ESCAPED=$(echo "$DESCRIPTION" | sed 's/[&/\]/\&/g')
+          sed -i "s|{{PROJECT_DESCRIPTION}}|$DESCRIPTION_ESCAPED|g" /tmp/amo_note_processed.md
+
+          echo "✓ AMO note template variables processed"
+
+          {
+            echo "note<<AMO_NOTE_EOF"
+            cat /tmp/amo_note_processed.md
+            echo ""
+            echo "AMO_NOTE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 11. Generate auto release notes for GitHub (fallback)
+      # ----------------------------------------------------------
+      - name: Generate auto release notes
+        id: auto_notes
+        if: ${{ inputs.gist_url == '' && inputs.create_release_without_gist }}
+        run: |
+          XPI_NAME="${{ steps.params.outputs.xpi_name }}"
+          CHECKSUM="${{ steps.checksum.outputs.checksum }}"
+          MANIFEST_VERSION="${{ steps.manifest.outputs.version }}"
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+
+          cat > /tmp/auto_notes.md <<AUTO_EOF
+          ## 📦 Release Files
+
+          - **XPI Package**: \`${XPI_NAME}.xpi\`
+          - **SHA-256**: \`${CHECKSUM}\`
+
+          ### Verification
+
+          \`\`\`bash
+          sha256sum --check ${XPI_NAME}.xpi.sha256
+          \`\`\`
+
+          ### Installation
+
+          1. Download the \`.xpi\` file from this release
+          2. Open Firefox → \`about:debugging#/runtime/this-firefox\`
+          3. Click **Load Temporary Add-on** → select the \`.xpi\` file
+
+          ---
+
+          **Version**: \`${MANIFEST_VERSION}\`
+          **Built**: \`${BUILD_DATE}\`
+          AUTO_EOF
+
+          # Remove leading whitespace added by heredoc indentation
+          sed -i 's/^          //' /tmp/auto_notes.md
+
+          {
+            echo "body<<AUTO_EOF"
+            cat /tmp/auto_notes.md
+            echo "AUTO_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # 12. Create GitHub Release (with Gist notes)
+      # ----------------------------------------------------------
+      - name: Create GitHub Release (Gist notes)
+        if: ${{ inputs.gist_url != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.params.outputs.tag_name }}
+          name: ${{ steps.params.outputs.release_title }}
+          body: ${{ steps.gist.outputs.body }}
+          prerelease: ${{ inputs.prerelease }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/${{ steps.params.outputs.xpi_name }}.xpi
+            dist/${{ steps.params.outputs.xpi_name }}.xpi.sha256
+
+      # ----------------------------------------------------------
+      # 13. Create GitHub Release (auto-generated notes)
+      # ----------------------------------------------------------
+      - name: Create GitHub Release (auto notes)
+        if: ${{ inputs.gist_url == '' && inputs.create_release_without_gist }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.params.outputs.tag_name }}
+          name: ${{ steps.params.outputs.release_title }}
+          body: ${{ steps.auto_notes.outputs.body }}
+          prerelease: ${{ inputs.prerelease }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/${{ steps.params.outputs.xpi_name }}.xpi
+            dist/${{ steps.params.outputs.xpi_name }}.xpi.sha256
+
+      # ----------------------------------------------------------
+      # 14. Publish to AMO (addons.mozilla.org)
+      #
+      #     Triggered only when publish_to_amo is checked.
+      #     All metadata is read from manifest.json automatically:
+      #       - addon-id  ← browser_specific_settings.gecko.id
+      #       - version   ← version field
+      #       - firefox-min ← browser_specific_settings.gecko.strict_min_version
+      #
+      #     release-note is populated from AMO Gist if provided,
+      #     otherwise the field is omitted.
+      #
+      # ----------------------------------------------------------
+      - name: Publish to AMO
+        if: ${{ inputs.publish_to_amo }}
+        id: amo_publish
+        uses: browser-actions/release-firefox-addon@v0
+        with:
+          addon-id: ${{ steps.manifest.outputs.addon_id }}
+          addon-path: dist/${{ steps.params.outputs.xpi_name }}.xpi
+          channel: ${{ inputs.amo_channel }}
+          compatibility-firefox-min: ${{ steps.manifest.outputs.firefox_min }}
+          release-note: ${{ steps.amo_note.outputs.note }}
+          auth-api-issuer: ${{ secrets.AMO_JWT_ISSUER }}
+          auth-api-secret: ${{ secrets.AMO_JWT_SECRET }}
+
+      # ----------------------------------------------------------
+      # 15. Build summary
+      # ----------------------------------------------------------
+      - name: Build summary
+        run: |
+          echo "### ✅ Build Completed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **XPI File** | \`${{ steps.params.outputs.xpi_name }}.xpi\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Version** | \`${{ steps.manifest.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Addon ID** | \`${{ steps.manifest.outputs.addon_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Git Tag** | \`${{ steps.params.outputs.tag_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SHA-256** | \`${{ steps.checksum.outputs.checksum }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.gist_url }}" != "" ]; then
+            echo "**📦 GitHub Release**: Created with Gist notes" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ inputs.create_release_without_gist }}" == "true" ]; then
+            echo "**📦 GitHub Release**: Created with auto-generated notes" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**⚙️ Build Mode**: Build-only (no GitHub release created)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ inputs.publish_to_amo }}" == "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**🦊 AMO Publish**: Submitted to addons.mozilla.org" >> $GITHUB_STEP_SUMMARY
+            echo "| AMO Field | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| **Channel** | \`${{ inputs.amo_channel }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **AMO Version ID** | \`${{ steps.amo_publish.outputs.version-id }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Edit URL** | ${{ steps.amo_publish.outputs.version-edit-url }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+# ============================================================
+# FUTURE: Chromium / Chrome Web Store support
+# ============================================================
+# When the Chromium port is ready, add a parallel job here.
+# The structure mirrors this job — inputs, build steps, and
+# a separate publish step using:
+#   browser-actions/release-chrome-extension@v1
+# with CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN secrets.
+#
+# The manifest metadata extraction step will read from:
+#   chromium/source/manifest.json
+# following the same pattern as this job.
+# ============================================================
