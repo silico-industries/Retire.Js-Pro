@@ -17,17 +17,17 @@ All processing happens locally. No data is sent to any external server.
 ┌──────────────────────────────────────────────────────────────────┐
 │  background.html  (background page)                              │
 │                                                                  │
-│  ┌────────────────┐   ┌──────────────┐   ┌──────────────────┐   │
+│  ┌─────────────────┐   ┌──────────────┐   ┌──────────────────┐   │
 │  │  background.js  │   │  retire.js   │   │ sandbox iframe   │   │
 │  │  (orchestrator) │   │  (engine)    │   │ sandbox.js +     │   │
 │  │                 │   │              │   │ innersandbox.js  │   │
 │  └───────┬─────────┘   └──────────────┘   └────────┬─────────┘   │
-│          │  webRequest.onCompleted                  │ postMessage │
-└──────────┼──────────────────────────────────────────┼────────────┘
-           │  tabs.sendMessage (result push)           │
-           ▼                                           │
-┌──────────────────────┐                              │
-│  content.js          │ ◄────────────────────────────┘
+│          │  webRequest.onCompleted                 │ postMessage │
+└──────────┼─────────────────────────────────────────┼─────────────┘
+           │  tabs.sendMessage (result push)         │
+           ▼                                         │
+┌──────────────────────┐                             │
+│  content.js          │ ◄───────────────────────────┘
 │  (per-tab collector) │
 └──────────┬───────────┘
            │  runtime.sendMessage (getDetected)
